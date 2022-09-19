@@ -137,7 +137,7 @@ impl<T: ReadWriter> HttpClient<T> {
         Ok(resp)
     }
 
-    fn execute_request(&mut self, req: &mut Request) -> Result<Response> {
+    fn execute_request(&mut self, req: &Request) -> Result<Response> {
         let body = req.build();
         self.conn.write_all(&body).unwrap();
         self.read_response()
@@ -167,8 +167,8 @@ mod test {
 
         let conn = TcpStream::connect(addr.to_string())?;
         let mut client = HttpClient::new(conn);
-        let mut req = Request::new("/hello".into());
-        let resp = client.execute_request(&mut req)?;
+        let req = Request::new("/hello".into());
+        let resp = client.execute_request(&req)?;
         let body = resp.body.unwrap();
 
         assert_eq!(body.text()?, want_body);

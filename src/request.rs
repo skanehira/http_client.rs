@@ -51,7 +51,7 @@ impl Request {
         request
     }
 
-    pub fn build(&mut self) -> Vec<u8> {
+    pub fn build(&self) -> Vec<u8> {
         let url = match &self.params {
             Some(params) => {
                 format!("{}?{}", self.url, params)
