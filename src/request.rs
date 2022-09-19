@@ -13,39 +13,39 @@ pub struct Request {
 }
 
 impl Request {
-    fn new(url: String) -> Self {
+    pub fn new(url: String) -> Self {
         Self {
             url,
             ..Default::default()
         }
     }
 
-    fn base_url(&mut self, p: String) -> &mut Self {
+    pub fn base_url(&mut self, p: String) -> &mut Self {
         self.base_url = Some(p);
         self
     }
 
-    fn method(&mut self, p: HttpMethod) -> &mut Self {
+    pub fn method(&mut self, p: HttpMethod) -> &mut Self {
         self.method = p;
         self
     }
 
-    fn header(&mut self, p: HttpHeader) -> &mut Self {
+    pub fn header(&mut self, p: HttpHeader) -> &mut Self {
         self.header = Some(p);
         self
     }
 
-    fn params(&mut self, p: HttpParams) -> &mut Self {
+    pub fn params(&mut self, p: HttpParams) -> &mut Self {
         self.params = Some(p);
         self
     }
 
-    fn body(&mut self, p: Vec<u8>) -> &mut Self {
+    pub fn body(&mut self, p: Vec<u8>) -> &mut Self {
         self.body = Some(p);
         self
     }
 
-    fn get(url: &str) -> Self {
+    pub fn get(url: &str) -> Self {
         let mut request = Self::new(url.into());
         request.method(HttpMethod::Get);
         request
