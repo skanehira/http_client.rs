@@ -146,9 +146,12 @@ impl<T: ReadWriter> HttpClient<T> {
 
 #[cfg(test)]
 mod test {
+    use crate::method::HttpMethod;
+
     use super::*;
     use anyhow::Result;
     use httptest::{matchers::*, responders::*, Expectation, ServerBuilder};
+    use serde_json::json;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 
     #[test]
@@ -174,6 +177,41 @@ mod test {
         assert_eq!(body.text()?, want_body);
         assert_eq!(resp.status, 200);
         assert_eq!(resp.header.get("content-type").unwrap(), "application/json");
+
+        Ok(())
+    }
+
+    #[test]
+    fn request_post() -> Result<()> {
+        let _ = pretty_env_logger::try_init();
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081);
+
+        let want_body = r#"{"name":"gorilla","age":5}"#;
+        let server = ServerBuilder::new().bind_addr(addr).run()?;
+
+        server.expect(
+            Expectation::matching(all_of![
+                request::method("POST"),
+                request::path("/hello"),
+                request::body(want_body),
+            ])
+            .respond_with(json_encoded(json!(true))),
+        );
+
+        let conn = TcpStream::connect(addr.to_string())?;
+        let mut client = HttpClient::new(conn);
+
+        let mut header = HttpHeader::new();
+        header.add("Content-type", "application/json");
+        header.add("content-length", want_body.len().to_string().as_str());
+        let mut req = Request::new("/hello".into());
+        let req = req
+            .body(want_body.clone().as_bytes().to_vec())
+            .header(header)
+            .method(HttpMethod::Post);
+        let resp = client.execute_request(&req)?;
+        let body = resp.body.unwrap();
+        assert_eq!(body.text().unwrap(), "true");
 
         Ok(())
     }
