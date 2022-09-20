@@ -137,7 +137,7 @@ impl<T: ReadWriter> HttpClient<T> {
         Ok(resp)
     }
 
-    fn execute_request(&mut self, req: &Request) -> Result<Response> {
+    pub fn execute_request(&mut self, req: &Request) -> Result<Response> {
         let body = req.build();
         self.conn.write_all(&body).unwrap();
         self.read_response()
@@ -201,9 +201,13 @@ mod test {
         let conn = TcpStream::connect(addr.to_string())?;
         let mut client = HttpClient::new(conn);
 
-        let mut header = HttpHeader::new();
-        header.add("Content-type", "application/json");
-        header.add("content-length", want_body.len().to_string().as_str());
+        let header: HttpHeader = [
+            ("Content-type", "application/json"),
+            ("Content-length", want_body.len().to_string().as_str()),
+        ]
+        .into_iter()
+        .collect();
+
         let mut req = Request::new("/hello".into());
         let req = req
             .body(want_body.clone().as_bytes().to_vec())

@@ -1,6 +1,6 @@
-mod client;
-mod header;
-mod method;
-mod params;
-mod request;
-mod response;
+pub mod client;
+pub mod header;
+pub mod method;
+pub mod params;
+pub mod request;
+pub mod response;
