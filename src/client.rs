@@ -146,8 +146,6 @@ impl<T: ReadWriter> HttpClient<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::method::HttpMethod;
-
     use super::*;
     use anyhow::Result;
     use httptest::{matchers::*, responders::*, Expectation, ServerBuilder};
@@ -221,8 +219,8 @@ mod test {
         .into_iter()
         .collect();
 
-        let mut req = Request::new("/hello".into());
-        let req = req.json(animal).header(header).method(HttpMethod::Post);
+        let mut req = Request::post("/hello".into());
+        let req = req.json(animal).header(header);
         let resp = client.execute_request(&req)?;
         let body = resp.body.unwrap();
         assert_eq!(body.text()?, "true");

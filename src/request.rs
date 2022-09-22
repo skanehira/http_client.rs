@@ -59,6 +59,12 @@ impl Request {
         self
     }
 
+    pub fn post(url: &str) -> Self {
+        let mut request = Self::new(url.into());
+        request.method(HttpMethod::Post);
+        request
+    }
+
     pub fn build(&self) -> Vec<u8> {
         let url = match &self.params {
             Some(params) => {
