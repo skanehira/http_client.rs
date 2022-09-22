@@ -151,8 +151,15 @@ mod test {
     use super::*;
     use anyhow::Result;
     use httptest::{matchers::*, responders::*, Expectation, ServerBuilder};
+    use serde::Serialize;
     use serde_json::json;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+
+    #[derive(Serialize, Clone)]
+    struct Animal {
+        name: String,
+        age: usize,
+    }
 
     #[test]
     fn request_get() -> Result<()> {
@@ -186,9 +193,15 @@ mod test {
         let _ = pretty_env_logger::try_init();
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081);
 
-        let want_body = r#"{"name":"gorilla","age":5}"#;
-        let server = ServerBuilder::new().bind_addr(addr).run()?;
+        let animal = serde_json::to_value(Animal {
+            name: "gorilla".into(),
+            age: 10,
+        })?;
 
+        let want_body = animal.to_string();
+        let length = want_body.len();
+
+        let server = ServerBuilder::new().bind_addr(addr).run()?;
         server.expect(
             Expectation::matching(all_of![
                 request::method("POST"),
@@ -203,19 +216,16 @@ mod test {
 
         let header: HttpHeader = [
             ("Content-type", "application/json"),
-            ("Content-length", want_body.len().to_string().as_str()),
+            ("Content-length", length.to_string().as_str()),
         ]
         .into_iter()
         .collect();
 
         let mut req = Request::new("/hello".into());
-        let req = req
-            .body(want_body.clone().as_bytes().to_vec())
-            .header(header)
-            .method(HttpMethod::Post);
+        let req = req.json(animal).header(header).method(HttpMethod::Post);
         let resp = client.execute_request(&req)?;
         let body = resp.body.unwrap();
-        assert_eq!(body.text().unwrap(), "true");
+        assert_eq!(body.text()?, "true");
 
         Ok(())
     }

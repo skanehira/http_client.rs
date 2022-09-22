@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 use crate::header::*;
 use crate::method::*;
 use crate::params::*;
@@ -51,6 +53,12 @@ impl Request {
         request
     }
 
+    pub fn json<T: Serialize>(&mut self, p: T) -> &mut Self {
+        let json = serde_json::to_value(p).unwrap();
+        self.body = Some(json.to_string().as_bytes().to_vec());
+        self
+    }
+
     pub fn build(&self) -> Vec<u8> {
         let url = match &self.params {
             Some(params) => {
@@ -87,6 +95,12 @@ impl Request {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[derive(Serialize)]
+    struct Animal {
+        name: String,
+        age: usize,
+    }
 
     #[test]
     fn request_build() {
@@ -134,5 +148,18 @@ mod test {
         .join("\r\n");
         let got = String::from_utf8(req.build()).unwrap();
         assert_eq!(want, got);
+    }
+
+    #[test]
+    fn with_json() {
+        let g = Animal {
+            name: "gorilla".into(),
+            age: 10,
+        };
+
+        let mut req = Request::new("/foo".into());
+        let got = String::from_utf8(req.json(g).body.clone().unwrap()).unwrap();
+        let want = r#"{"age":10,"name":"gorilla"}"#;
+        assert_eq!(got, want);
     }
 }
