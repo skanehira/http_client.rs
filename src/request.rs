@@ -78,23 +78,23 @@ impl Request {
             None => "localhost".into(),
         };
 
-        let mut body = vec![
+        let mut message = vec![
             format!("{} {} HTTP/1.1", self.method, url),
             format!("Host: {}", base_url),
         ];
         if let Some(header) = &self.header {
-            body.push(format!("{}", header));
+            message.push(format!("{}", header));
         }
-        body.push("".into());
+        message.push("".into());
 
-        let mut body = body.join("\r\n").as_bytes().to_vec();
-        let crlf = b"\r\n".to_vec();
+        let mut message = message.join("\r\n").as_bytes().to_vec();
+        let newline = b"\r\n".to_vec();
         if let Some(data) = &self.body {
-            body.append(&mut crlf.clone());
-            body.append(&mut data.to_vec());
+            message.append(&mut newline.clone());
+            message.append(&mut data.to_vec());
         }
-        body.append(&mut crlf.clone());
-        body
+        message.append(&mut newline.clone());
+        message
     }
 }
 
