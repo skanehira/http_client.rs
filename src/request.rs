@@ -75,7 +75,7 @@ impl Request {
 
         let base_url = match &self.base_url {
             Some(base_url) => base_url.clone(),
-            None => "localhost".to_string(),
+            None => "localhost".into(),
         };
 
         let mut body = vec![
@@ -88,7 +88,7 @@ impl Request {
         body.push("".into());
 
         let mut body = body.join("\r\n").as_bytes().to_vec();
-        let crlf = "\r\n".as_bytes().to_vec();
+        let crlf = b"\r\n".to_vec();
         if let Some(data) = &self.body {
             body.append(&mut crlf.clone());
             body.append(&mut data.to_vec());
@@ -102,7 +102,7 @@ impl Request {
 mod test {
     use super::*;
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Clone)]
     struct Animal {
         name: String,
         age: usize,
@@ -111,7 +111,7 @@ mod test {
     #[test]
     fn request_build() {
         let req = Request {
-            url: "/images/json".to_string(),
+            url: "/images/json".into(),
             method: HttpMethod::Get,
             ..Default::default()
         };
@@ -158,14 +158,14 @@ mod test {
 
     #[test]
     fn with_json() {
-        let g = Animal {
+        let animal = Animal {
             name: "gorilla".into(),
             age: 10,
         };
 
         let mut req = Request::new("/foo".into());
-        let got = String::from_utf8(req.json(g).body.clone().unwrap()).unwrap();
-        let want = r#"{"age":10,"name":"gorilla"}"#;
+        let got = String::from_utf8(req.json(animal.clone()).body.clone().unwrap()).unwrap();
+        let want = serde_json::to_value(animal).unwrap().to_string();
         assert_eq!(got, want);
     }
 }
