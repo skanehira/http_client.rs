@@ -1,3 +1,4 @@
+pub mod body;
 pub mod client;
 pub mod header;
 pub mod method;

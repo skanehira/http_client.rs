@@ -1,3 +1,4 @@
+use crate::body::Body;
 use crate::header::*;
 use crate::request::*;
 use crate::response::*;

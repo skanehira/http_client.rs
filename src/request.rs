@@ -1,5 +1,7 @@
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 
+use crate::body::Body;
 use crate::header::*;
 use crate::method::*;
 use crate::params::*;
@@ -11,7 +13,7 @@ pub struct Request {
     method: HttpMethod,
     header: Option<HttpHeader>,
     params: Option<HttpParams>,
-    body: Option<Vec<u8>>,
+    body: Option<Body>,
 }
 
 impl Request {
@@ -43,7 +45,7 @@ impl Request {
     }
 
     pub fn body(&mut self, p: Vec<u8>) -> &mut Self {
-        self.body = Some(p);
+        self.body = Some(Body::new(p));
         self
     }
 
@@ -55,7 +57,7 @@ impl Request {
 
     pub fn json<T: Serialize>(&mut self, p: T) -> &mut Self {
         let json = serde_json::to_value(p).unwrap();
-        self.body = Some(json.to_string().as_bytes().to_vec());
+        self.body = Some(Body::new(json.to_string().as_bytes().to_vec()));
         self
     }
 
@@ -91,15 +93,22 @@ impl Request {
         let newline = b"\r\n".to_vec();
         if let Some(data) = &self.body {
             message.append(&mut newline.clone());
-            message.append(&mut data.to_vec());
+            message.append(&mut data.raw());
         }
         message.append(&mut newline.clone());
         message
+    }
+
+    pub fn to_string(&self) -> Result<String> {
+        let result = self.build();
+        String::from_utf8(result).map_err(|x| anyhow!("{}", x))
     }
 }
 
 #[cfg(test)]
 mod test {
+    use anyhow::Result;
+
     use super::*;
 
     #[derive(Serialize, Clone)]
@@ -109,27 +118,29 @@ mod test {
     }
 
     #[test]
-    fn request_build() {
+    fn request_build() -> Result<()> {
         let req = Request {
             url: "/images/json".into(),
             method: HttpMethod::Get,
             ..Default::default()
         };
         let want = ["GET /images/json HTTP/1.1", "Host: localhost", "", ""].join("\r\n");
-        let got = String::from_utf8(req.build()).unwrap();
+        let got = req.to_string()?;
         assert_eq!(want, got);
+        Ok(())
     }
 
     #[test]
-    fn request_get() {
+    fn request_get() -> Result<()> {
         let req = Request::get("/images/json");
         let want = ["GET /images/json HTTP/1.1", "Host: localhost", "", ""].join("\r\n");
-        let got = String::from_utf8(req.build()).unwrap();
+        let got = req.to_string()?;
         assert_eq!(want, got);
+        Ok(())
     }
 
     #[test]
-    fn request_with_options() {
+    fn request_with_options() -> Result<()> {
         let mut req = Request::new("/images/json".into());
         let params: HttpParams = [("name", "nvim"), ("image", "ubuntu")]
             .into_iter()
@@ -152,20 +163,32 @@ mod test {
             "",
         ]
         .join("\r\n");
-        let got = String::from_utf8(req.build()).unwrap();
+        let got = req.to_string()?;
         assert_eq!(want, got);
+        Ok(())
     }
 
     #[test]
-    fn with_json() {
+    fn with_json() -> Result<()> {
         let animal = Animal {
             name: "gorilla".into(),
             age: 10,
         };
 
         let mut req = Request::new("/foo".into());
-        let got = String::from_utf8(req.json(animal.clone()).body.clone().unwrap()).unwrap();
-        let want = serde_json::to_value(animal).unwrap().to_string();
+        let req = req.json(animal.clone()).method(HttpMethod::Post);
+        let got = req.to_string()?;
+
+        let body = serde_json::to_value(animal)?.to_string();
+        let want = [
+            "POST /foo HTTP/1.1",
+            "Host: localhost",
+            "",
+            body.as_str(),
+            "",
+        ]
+        .join("\r\n");
         assert_eq!(got, want);
+        Ok(())
     }
 }
