@@ -130,6 +130,11 @@ impl<T: ReadWriter> HttpClient<T> {
             };
         }
 
+        if is_chunked {
+            header.add("content-length", body.len().to_string().as_str());
+            header.remove("transfer-encoding")
+        }
+
         let resp = Response {
             status,
             header,

@@ -25,6 +25,9 @@ impl HttpHeader {
     pub fn get(&self, key: &str) -> Option<&String> {
         self.0.get(key)
     }
+    pub fn remove(&mut self, key: &str) {
+        self.0.remove(key);
+    }
 }
 
 impl<'a> FromIterator<(&'a str, &'a str)> for HttpHeader {
