@@ -151,7 +151,7 @@ mod test {
     use httptest::{matchers::*, responders::*, Expectation, ServerBuilder};
     use serde::Serialize;
     use serde_json::json;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+    use std::net::{SocketAddr, TcpStream};
 
     #[derive(Serialize, Clone)]
     struct Animal {
@@ -163,7 +163,7 @@ mod test {
     fn request_get() -> Result<()> {
         let want_body = r#"{"name": "gorilla", "age": 5}"#;
 
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
         let server = ServerBuilder::new().bind_addr(addr).run()?;
         server.expect(
             Expectation::matching(request::method_path("GET", "/hello")).respond_with(
@@ -173,7 +173,7 @@ mod test {
             ),
         );
 
-        let conn = TcpStream::connect(addr.to_string())?;
+        let conn = TcpStream::connect(server.addr())?;
         let mut client = HttpClient::new(conn);
         let req = Request::new("/hello".into());
         let resp = client.execute_request(&req)?;
@@ -189,7 +189,6 @@ mod test {
     #[test]
     fn request_post() -> Result<()> {
         let _ = pretty_env_logger::try_init();
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081);
 
         let animal = serde_json::to_value(Animal {
             name: "gorilla".into(),
@@ -199,6 +198,7 @@ mod test {
         let want_body = animal.to_string();
         let length = want_body.len();
 
+        let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
         let server = ServerBuilder::new().bind_addr(addr).run()?;
         server.expect(
             Expectation::matching(all_of![
@@ -209,7 +209,7 @@ mod test {
             .respond_with(json_encoded(json!(true))),
         );
 
-        let conn = TcpStream::connect(addr.to_string())?;
+        let conn = TcpStream::connect(server.addr())?;
         let mut client = HttpClient::new(conn);
 
         let header: HttpHeader = [
