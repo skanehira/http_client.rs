@@ -85,11 +85,14 @@ impl<T: ReadWriter> HttpClient<T> {
         let is_chunked = tf.map(|x| *x == "chunked").unwrap_or(false);
 
         let mut body = Vec::new();
+        let mut content_length: usize = 0;
+
         if is_chunked {
             // read body
             loop {
                 buf.clear();
                 let readed = r.read_until(b'\n', &mut buf).unwrap();
+                content_length += readed;
                 if readed == 0 {
                     break;
                 }
@@ -116,11 +119,12 @@ impl<T: ReadWriter> HttpClient<T> {
             if value.is_none() {
                 return Err(anyhow!("not found content-length"));
             }
-            let value = value.unwrap().parse::<isize>();
+            let value = value.unwrap().parse::<usize>();
 
             match value {
                 Ok(size) => {
-                    let mut buf = vec![0u8; size.to_owned() as usize];
+                    content_length = size;
+                    let mut buf = vec![0u8; size];
                     r.read_exact(&mut buf).unwrap();
                     body = buf;
                 }
@@ -131,7 +135,7 @@ impl<T: ReadWriter> HttpClient<T> {
         }
 
         if is_chunked {
-            header.add("content-length", body.len().to_string().as_str());
+            header.add("content-length", content_length.to_string().as_str());
             header.remove("transfer-encoding")
         }
 
@@ -188,6 +192,7 @@ mod test {
         assert_eq!(body.text()?, want_body);
         assert_eq!(resp.status, 200);
         assert_eq!(resp.header.get("content-type").unwrap(), "application/json");
+        assert_eq!(resp.header.get("content-length").unwrap(), "29");
 
         Ok(())
     }
@@ -230,6 +235,7 @@ mod test {
         let resp = client.execute_request(&req)?;
         let body = resp.body.unwrap();
         assert_eq!(body.text()?, "true");
+        assert_eq!(resp.header.get("content-length").unwrap(), "4");
 
         Ok(())
     }
