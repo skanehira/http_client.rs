@@ -1,5 +1,6 @@
 use crate::body::Body;
 use crate::header::*;
+use crate::method::HttpMethod;
 use crate::request::*;
 use crate::response::*;
 use anyhow::anyhow;
@@ -22,7 +23,7 @@ impl<T: ReadWriter> HttpClient<T> {
         HttpClient { conn }
     }
 
-    fn read_response(&mut self) -> Result<Response> {
+    fn read_response(&mut self, req: &Request) -> Result<Response> {
         let mut r = BufReader::new(&mut self.conn);
         let mut buf = Vec::new();
 
@@ -75,82 +76,92 @@ impl<T: ReadWriter> HttpClient<T> {
             _ => {}
         }
 
+        let must_read_body = match req.method {
+            HttpMethod::Head | HttpMethod::Options => false,
+            _ => true,
+        };
         let tf = header.get("transfer-encoding");
         let cl = header.get("content-length");
 
-        if tf.is_none() && cl.is_none() {
+        if must_read_body && tf.is_none() && cl.is_none() {
             return Err(anyhow!("missing transfer-encoding or content-length"));
         }
-
-        let is_chunked = tf.map(|x| *x == "chunked").unwrap_or(false);
-
         let mut body = Vec::new();
-        let mut content_length: usize = 0;
 
-        if is_chunked {
-            // read body
-            loop {
-                buf.clear();
-                let readed = r.read_until(b'\n', &mut buf).unwrap();
-                content_length += readed;
-                if readed == 0 {
-                    break;
-                }
+        if must_read_body {
+            let is_chunked = tf.map(|x| *x == "chunked").unwrap_or(false);
 
-                let line = String::from_utf8(buf.clone())
-                    .map_err(|_| anyhow!("cannot coonvert bytes to string"))?;
-                let chunk_size = i64::from_str_radix(line.trim(), 16)
-                    .map_err(|err| anyhow!("cannot read chunk length: {}: {}", line, err))?;
+            let mut content_length: usize = 0;
 
-                if chunk_size == 0 {
+            if is_chunked {
+                // read body
+                loop {
+                    buf.clear();
+                    let readed = r.read_until(b'\n', &mut buf).unwrap();
+                    content_length += readed;
+                    if readed == 0 {
+                        break;
+                    }
+
+                    let line = String::from_utf8(buf.clone())
+                        .map_err(|_| anyhow!("cannot coonvert bytes to string"))?;
+                    let chunk_size = i64::from_str_radix(line.trim(), 16)
+                        .map_err(|err| anyhow!("cannot read chunk length: {}: {}", line, err))?;
+
+                    if chunk_size == 0 {
+                        let _ = r.read_until(b'\n', &mut buf);
+                        break;
+                    }
+
+                    let mut chunk = vec![0u8; chunk_size as usize];
+                    r.read_exact(&mut chunk).unwrap();
+                    body.append(&mut chunk);
+
+                    // consume \r\n
                     let _ = r.read_until(b'\n', &mut buf);
-                    break;
                 }
+            } else {
+                let value = header.get("content-length");
+                if value.is_none() {
+                    return Err(anyhow!("not found content-length"));
+                }
+                let value = value.unwrap().parse::<usize>();
 
-                let mut chunk = vec![0u8; chunk_size as usize];
-                r.read_exact(&mut chunk).unwrap();
-                body.append(&mut chunk);
-
-                // consume \r\n
-                let _ = r.read_until(b'\n', &mut buf);
+                match value {
+                    Ok(size) => {
+                        content_length = size;
+                        let mut buf = vec![0u8; size];
+                        r.read_exact(&mut buf).unwrap();
+                        body = buf;
+                    }
+                    Err(e) => {
+                        return Err(anyhow!(e.to_string()));
+                    }
+                };
             }
-        } else {
-            let value = header.get("content-length");
-            if value.is_none() {
-                return Err(anyhow!("not found content-length"));
-            }
-            let value = value.unwrap().parse::<usize>();
 
-            match value {
-                Ok(size) => {
-                    content_length = size;
-                    let mut buf = vec![0u8; size];
-                    r.read_exact(&mut buf).unwrap();
-                    body = buf;
-                }
-                Err(e) => {
-                    return Err(anyhow!(e.to_string()));
-                }
-            };
+            if is_chunked {
+                header.add("content-length", content_length.to_string().as_str());
+                header.remove("transfer-encoding")
+            }
         }
 
-        if is_chunked {
-            header.add("content-length", content_length.to_string().as_str());
-            header.remove("transfer-encoding")
-        }
-
-        let resp = Response {
+        let mut resp = Response {
             status,
             header,
-            body: Some(Body::new(body)),
+            body: None,
         };
+
+        if !body.is_empty() {
+            resp.body = Some(Body::new(body));
+        }
         Ok(resp)
     }
 
     pub fn execute_request(&mut self, req: &Request) -> Result<Response> {
         let body = req.build();
         self.conn.write_all(&body).unwrap();
-        self.read_response()
+        self.read_response(req)
     }
 }
 
@@ -185,7 +196,7 @@ mod test {
 
         let conn = TcpStream::connect(server.addr())?;
         let mut client = HttpClient::new(conn);
-        let req = Request::new("/hello".into());
+        let req = Request::get("/hello".into());
         let resp = client.execute_request(&req)?;
         let body = resp.body.unwrap();
 
@@ -230,12 +241,162 @@ mod test {
         .into_iter()
         .collect();
 
-        let mut req = Request::post("/hello".into());
-        let req = req.json(animal).header(header);
+        let mut req = Request::post("/hello".into(), animal);
+        let req = req.header(header);
         let resp = client.execute_request(&req)?;
         let body = resp.body.unwrap();
         assert_eq!(body.text()?, "true");
         assert_eq!(resp.header.get("content-length").unwrap(), "4");
+
+        Ok(())
+    }
+
+    #[test]
+    fn request_put() -> Result<()> {
+        let _ = pretty_env_logger::try_init();
+
+        let animal = serde_json::to_value(Animal {
+            name: "gorilla".into(),
+            age: 10,
+        })?;
+
+        let want_body = animal.to_string();
+        let length = want_body.len();
+
+        let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
+        let server = ServerBuilder::new().bind_addr(addr).run()?;
+        server.expect(
+            Expectation::matching(all_of![
+                request::method("PUT"),
+                request::path("/hello"),
+                request::body(want_body),
+            ])
+            .respond_with(json_encoded(json!(true))),
+        );
+
+        let conn = TcpStream::connect(server.addr())?;
+        let mut client = HttpClient::new(conn);
+
+        let header: HttpHeader = [
+            ("Content-type", "application/json"),
+            ("Content-length", length.to_string().as_str()),
+        ]
+        .into_iter()
+        .collect();
+
+        let mut req = Request::put("/hello".into(), animal);
+        let req = req.header(header);
+        let resp = client.execute_request(&req)?;
+        let body = resp.body.unwrap();
+        assert_eq!(body.text()?, "true");
+        assert_eq!(resp.header.get("content-length").unwrap(), "4");
+
+        Ok(())
+    }
+
+    #[test]
+    fn request_delete() -> Result<()> {
+        let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
+        let server = ServerBuilder::new().bind_addr(addr).run()?;
+        server.expect(
+            Expectation::matching(request::method_path("DELETE", "/hello"))
+                .respond_with(status_code(200)),
+        );
+
+        let conn = TcpStream::connect(server.addr())?;
+        let mut client = HttpClient::new(conn);
+        let req = Request::delete("/hello".into());
+        let resp = client.execute_request(&req)?;
+
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body.is_none(), true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn request_patch() -> Result<()> {
+        let _ = pretty_env_logger::try_init();
+
+        let animal = serde_json::to_value(Animal {
+            name: "gorilla".into(),
+            age: 10,
+        })?;
+
+        let want_body = animal.to_string();
+        let length = want_body.len();
+
+        let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
+        let server = ServerBuilder::new().bind_addr(addr).run()?;
+        server.expect(
+            Expectation::matching(all_of![
+                request::method("PATCH"),
+                request::path("/hello"),
+                request::body(want_body),
+            ])
+            .respond_with(json_encoded(json!(true))),
+        );
+
+        let conn = TcpStream::connect(server.addr())?;
+        let mut client = HttpClient::new(conn);
+
+        let header: HttpHeader = [
+            ("Content-type", "application/json"),
+            ("Content-length", length.to_string().as_str()),
+        ]
+        .into_iter()
+        .collect();
+
+        let mut req = Request::patch("/hello".into(), animal);
+        let req = req.header(header);
+        let resp = client.execute_request(&req)?;
+        let body = resp.body.unwrap();
+        assert_eq!(body.text()?, "true");
+
+        Ok(())
+    }
+
+    #[test]
+    fn request_head() -> Result<()> {
+        let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
+        let server = ServerBuilder::new().bind_addr(addr).run()?;
+        server.expect(
+            Expectation::matching(request::method_path("HEAD", "/hello"))
+                .respond_with(status_code(200)),
+        );
+
+        let conn = TcpStream::connect(server.addr())?;
+        let mut client = HttpClient::new(conn);
+        let req = Request::head("/hello".into());
+        let resp = client.execute_request(&req)?;
+
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body.is_none(), true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn request_options() -> Result<()> {
+        let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
+        let server = ServerBuilder::new().bind_addr(addr).run()?;
+        server.expect(
+            Expectation::matching(request::method_path("OPTIONS", "/hello")).respond_with(
+                status_code(200).append_header("Access-Control-Allow-Methods", "POST, PUT"),
+            ),
+        );
+
+        let conn = TcpStream::connect(server.addr())?;
+        let mut client = HttpClient::new(conn);
+        let req = Request::options("/hello".into());
+        let resp = client.execute_request(&req)?;
+
+        assert_eq!(resp.status, 200);
+        assert_eq!(
+            resp.header.get("access-control-allow-methods").unwrap(),
+            "POST, PUT"
+        );
+        assert_eq!(resp.body.is_none(), true);
 
         Ok(())
     }

@@ -8,12 +8,12 @@ use crate::params::*;
 
 #[derive(Default)]
 pub struct Request {
-    url: String,
-    base_url: Option<String>,
-    method: HttpMethod,
-    header: Option<HttpHeader>,
-    params: Option<HttpParams>,
-    body: Option<Body>,
+    pub url: String,
+    pub base_url: Option<String>,
+    pub method: HttpMethod,
+    pub header: Option<HttpHeader>,
+    pub params: Option<HttpParams>,
+    pub body: Option<Body>,
 }
 
 impl Request {
@@ -55,16 +55,46 @@ impl Request {
         request
     }
 
+    pub fn post<T: Serialize>(url: &str, body: T) -> Self {
+        let mut request = Self::new(url.into());
+        request.method(HttpMethod::Post).json(body);
+        request
+    }
+
+    pub fn put<T: Serialize>(url: &str, body: T) -> Self {
+        let mut request = Self::new(url.into());
+        request.method(HttpMethod::Put).json(body);
+        request
+    }
+
+    pub fn delete(url: &str) -> Self {
+        let mut request = Self::new(url.into());
+        request.method(HttpMethod::Delete);
+        request
+    }
+
+    pub fn patch<T: Serialize>(url: &str, body: T) -> Self {
+        let mut request = Self::new(url.into());
+        request.method(HttpMethod::Patch).json(body);
+        request
+    }
+
+    pub fn head(url: &str) -> Self {
+        let mut request = Self::new(url.into());
+        request.method(HttpMethod::Head);
+        request
+    }
+
+    pub fn options(url: &str) -> Self {
+        let mut request = Self::new(url.into());
+        request.method(HttpMethod::Options);
+        request
+    }
+
     pub fn json<T: Serialize>(&mut self, p: T) -> &mut Self {
         let json = serde_json::to_value(p).unwrap();
         self.body = Some(Body::new(json.to_string().as_bytes().to_vec()));
         self
-    }
-
-    pub fn post(url: &str) -> Self {
-        let mut request = Self::new(url.into());
-        request.method(HttpMethod::Post);
-        request
     }
 
     pub fn build(&self) -> Vec<u8> {

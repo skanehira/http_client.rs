@@ -1,11 +1,14 @@
 use std::fmt::Display;
 
+#[derive(Eq, PartialEq)]
 pub enum HttpMethod {
     Get,
     Post,
-    Update,
+    Put,
     Delete,
     Patch,
+    Head,
+    Options,
 }
 
 impl Default for HttpMethod {
@@ -19,9 +22,11 @@ impl Display for HttpMethod {
         let method = match self {
             Self::Get => "GET",
             Self::Post => "POST",
-            Self::Update => "UPDATE",
+            Self::Put => "PUT",
             Self::Delete => "DELETE",
             Self::Patch => "PATCH",
+            Self::Head => "HEAD",
+            Self::Options => "OPTIONS",
         };
         write!(f, "{}", method)
     }
