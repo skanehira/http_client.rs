@@ -120,12 +120,12 @@ impl Request {
         message.push("".into());
 
         let mut message = message.join("\r\n").as_bytes().to_vec();
-        let newline = b"\r\n".to_vec();
+        let mut newline = b"\r\n".to_vec();
         if let Some(data) = &self.body {
             message.append(&mut newline.clone());
             message.append(&mut data.raw());
         }
-        message.append(&mut newline.clone());
+        message.append(&mut newline);
         message
     }
 

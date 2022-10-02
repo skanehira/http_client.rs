@@ -30,6 +30,12 @@ impl HttpHeader {
     }
 }
 
+impl Default for HttpHeader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> FromIterator<(&'a str, &'a str)> for HttpHeader {
     fn from_iter<T: IntoIterator<Item = (&'a str, &'a str)>>(iter: T) -> Self {
         let mut p = Self::new();

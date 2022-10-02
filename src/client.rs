@@ -3,8 +3,7 @@ use crate::header::*;
 use crate::method::HttpMethod;
 use crate::request::*;
 use crate::response::*;
-use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{anyhow, bail, Context, Result};
 use std::io::{self, BufRead, BufReader, Read};
 
 pub trait ReadWriter: io::Read + io::Write {}
@@ -38,13 +37,13 @@ impl<T: ReadWriter> HttpClient<T> {
             .parse::<u32>()?;
 
         // read headers
-        let mut header = HttpHeader::new();
+        let mut header = HttpHeader::default();
         loop {
             buf.clear();
             let readed = r.read_until(b'\n', &mut buf)?;
 
             if readed == 0 {
-                return Err(anyhow!("unexpected endof"));
+                bail!("unexpected endof");
             }
 
             let mut line = String::from_utf8(buf.clone())?;
@@ -76,15 +75,12 @@ impl<T: ReadWriter> HttpClient<T> {
             _ => {}
         }
 
-        let must_read_body = match req.method {
-            HttpMethod::Head | HttpMethod::Options => false,
-            _ => true,
-        };
+        let must_read_body = !matches!(req.method, HttpMethod::Head | HttpMethod::Options);
         let tf = header.get("transfer-encoding");
         let cl = header.get("content-length");
 
         if must_read_body && tf.is_none() && cl.is_none() {
-            return Err(anyhow!("missing transfer-encoding or content-length"));
+            bail!("missing transfer-encoding or content-length");
         }
         let mut body = Vec::new();
 
@@ -104,9 +100,9 @@ impl<T: ReadWriter> HttpClient<T> {
                     }
 
                     let line = String::from_utf8(buf.clone())
-                        .map_err(|_| anyhow!("cannot coonvert bytes to string"))?;
+                        .context("cannot coonvert bytes to string")?;
                     let chunk_size = i64::from_str_radix(line.trim(), 16)
-                        .map_err(|err| anyhow!("cannot read chunk length: {}: {}", line, err))?;
+                        .context(format!("cannot read chunk length: {}", line))?;
 
                     if chunk_size == 0 {
                         let _ = r.read_until(b'\n', &mut buf);
@@ -123,7 +119,7 @@ impl<T: ReadWriter> HttpClient<T> {
             } else {
                 let value = header.get("content-length");
                 if value.is_none() {
-                    return Err(anyhow!("not found content-length"));
+                    bail!("not found content-length");
                 }
                 let value = value.unwrap().parse::<usize>();
 
@@ -135,7 +131,7 @@ impl<T: ReadWriter> HttpClient<T> {
                         body = buf;
                     }
                     Err(e) => {
-                        return Err(anyhow!(e.to_string()));
+                        bail!(e.to_string());
                     }
                 };
             }
@@ -168,7 +164,6 @@ impl<T: ReadWriter> HttpClient<T> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use anyhow::Result;
     use httptest::{matchers::*, responders::*, Expectation, ServerBuilder};
     use serde::Serialize;
     use serde_json::json;
@@ -196,7 +191,7 @@ mod test {
 
         let conn = TcpStream::connect(server.addr())?;
         let mut client = HttpClient::new(conn);
-        let req = Request::get("/hello".into());
+        let req = Request::get("/hello");
         let resp = client.execute_request(&req)?;
         let body = resp.body.unwrap();
 
@@ -241,9 +236,9 @@ mod test {
         .into_iter()
         .collect();
 
-        let mut req = Request::post("/hello".into(), animal);
+        let mut req = Request::post("/hello", animal);
         let req = req.header(header);
-        let resp = client.execute_request(&req)?;
+        let resp = client.execute_request(req)?;
         let body = resp.body.unwrap();
         assert_eq!(body.text()?, "true");
         assert_eq!(resp.header.get("content-length").unwrap(), "4");
@@ -284,9 +279,9 @@ mod test {
         .into_iter()
         .collect();
 
-        let mut req = Request::put("/hello".into(), animal);
+        let mut req = Request::put("/hello", animal);
         let req = req.header(header);
-        let resp = client.execute_request(&req)?;
+        let resp = client.execute_request(req)?;
         let body = resp.body.unwrap();
         assert_eq!(body.text()?, "true");
         assert_eq!(resp.header.get("content-length").unwrap(), "4");
@@ -305,11 +300,11 @@ mod test {
 
         let conn = TcpStream::connect(server.addr())?;
         let mut client = HttpClient::new(conn);
-        let req = Request::delete("/hello".into());
+        let req = Request::delete("/hello");
         let resp = client.execute_request(&req)?;
 
         assert_eq!(resp.status, 200);
-        assert_eq!(resp.body.is_none(), true);
+        assert!(resp.body.is_none());
 
         Ok(())
     }
@@ -347,9 +342,9 @@ mod test {
         .into_iter()
         .collect();
 
-        let mut req = Request::patch("/hello".into(), animal);
+        let mut req = Request::patch("/hello", animal);
         let req = req.header(header);
-        let resp = client.execute_request(&req)?;
+        let resp = client.execute_request(req)?;
         let body = resp.body.unwrap();
         assert_eq!(body.text()?, "true");
 
@@ -367,11 +362,11 @@ mod test {
 
         let conn = TcpStream::connect(server.addr())?;
         let mut client = HttpClient::new(conn);
-        let req = Request::head("/hello".into());
+        let req = Request::head("/hello");
         let resp = client.execute_request(&req)?;
 
         assert_eq!(resp.status, 200);
-        assert_eq!(resp.body.is_none(), true);
+        assert!(resp.body.is_none());
 
         Ok(())
     }
@@ -388,7 +383,7 @@ mod test {
 
         let conn = TcpStream::connect(server.addr())?;
         let mut client = HttpClient::new(conn);
-        let req = Request::options("/hello".into());
+        let req = Request::options("/hello");
         let resp = client.execute_request(&req)?;
 
         assert_eq!(resp.status, 200);
@@ -396,7 +391,7 @@ mod test {
             resp.header.get("access-control-allow-methods").unwrap(),
             "POST, PUT"
         );
-        assert_eq!(resp.body.is_none(), true);
+        assert!(resp.body.is_none());
 
         Ok(())
     }
